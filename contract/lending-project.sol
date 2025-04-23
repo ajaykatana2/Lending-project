@@ -152,7 +152,7 @@ contract LendingContract is ReentrancyGuard, Ownable {
         
         // Only check collateral ratio if there is outstanding debt
         if (totalDebt > 0) {
-            require(_getCollateralValue(remainingCollateral) >= _getLoanValue(totalDebt), 
+            require(_getCollateralValue(remainingCollateral) >= totalDebt, 
                     "Withdrawal would violate collateral ratio");
         }
         
@@ -186,7 +186,7 @@ contract LendingContract is ReentrancyGuard, Ownable {
         uint totalDebt = position.borrowedAmount + position.interestAccrued + amount;
         
         // Check if borrowing would violate collateral ratio
-        require(_getCollateralValue(position.collateralAmount) >= _getLoanValue(totalDebt), 
+        require(_getCollateralValue(position.collateralAmount) >= totalDebt, 
                 "Insufficient collateral for loan");
         
         // Update borrowed amount
@@ -417,14 +417,5 @@ contract LendingContract is ReentrancyGuard, Ownable {
      */
     function _getCollateralValue(uint collateralAmount) internal view returns (uint) {
         return (collateralAmount * 10000) / collateralRatio;
-    }
-    
-    /**
-     * @dev Get required collateral value for a loan
-     * @param loanAmount Amount of the loan
-     * @return Required collateral value
-     */
-    function _getLoanValue(uint loanAmount) internal pure returns (uint) {
-        return loanAmount;
     }
 }
