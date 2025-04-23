@@ -70,8 +70,9 @@ As DeFi continues to evolve, this lending protocol will integrate with other fin
 
 15. **Analytics Dashboard**: Develop comprehensive analytics tools for users to track their positions, historical rates, and market conditions.
 
-**Contract Address:** 0xd8b934580fcE35a11B58C6D73aDeE468a2833fa8
+**Contract Address:** 0xc9f5ca2c36ddcc22cf5c71b1ff32a28486934ace
 
-<img width="1406" alt="image" src="https://github.com/user-attachments/assets/bce402f8-484e-4620-8644-96a55bcc27dd" />
+
+<img width="1406" alt="image" src="https://github.com/user-attachments/assets/c3c7a277-d19a-4880-a36d-137733740116" />
 
 
