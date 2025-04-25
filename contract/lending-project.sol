@@ -51,6 +51,8 @@ contract LendingContract is ReentrancyGuard, Ownable {
     event Repay(address indexed user, address indexed token, uint amount);
     event Liquidated(address indexed user, address indexed token, uint collateralAmount, uint debtAmount);
     event InterestRateUpdated(uint oldRate, uint newRate);
+    event CollateralRatioUpdated(uint oldRatio, uint newRatio);
+    event LiquidationThresholdUpdated(uint oldThreshold, uint newThreshold);
     event EmergencyPaused(bool isPaused);
     
     // Emergency pause switch
@@ -96,6 +98,32 @@ contract LendingContract is ReentrancyGuard, Ownable {
         uint oldRate = interestRate;
         interestRate = newInterestRate;
         emit InterestRateUpdated(oldRate, newInterestRate);
+    }
+    
+    /**
+     * @dev Update collateral ratio requirement
+     * @param newCollateralRatio New collateral ratio (in percentage * 100)
+     */
+    function updateCollateralRatio(uint newCollateralRatio) external onlyOwner {
+        require(newCollateralRatio > 10000, "Collateral ratio must be greater than 100%");
+        require(newCollateralRatio > liquidationThreshold, "Collateral ratio must be greater than liquidation threshold");
+        
+        uint oldRatio = collateralRatio;
+        collateralRatio = newCollateralRatio;
+        emit CollateralRatioUpdated(oldRatio, newCollateralRatio);
+    }
+    
+    /**
+     * @dev Update liquidation threshold
+     * @param newLiquidationThreshold New liquidation threshold (in percentage * 100)
+     */
+    function updateLiquidationThreshold(uint newLiquidationThreshold) external onlyOwner {
+        require(newLiquidationThreshold > 10000, "Liquidation threshold must be greater than 100%");
+        require(newLiquidationThreshold < collateralRatio, "Liquidation threshold must be less than collateral ratio");
+        
+        uint oldThreshold = liquidationThreshold;
+        liquidationThreshold = newLiquidationThreshold;
+        emit LiquidationThresholdUpdated(oldThreshold, newLiquidationThreshold);
     }
     
     /**
@@ -384,6 +412,76 @@ contract LendingContract is ReentrancyGuard, Ownable {
         if (availableToBorrow > protocolLiquidity) {
             availableToBorrow = protocolLiquidity;
         }
+    }
+    
+    /**
+     * @dev Get liquidation information for a specific user position
+     * @param user Address of the user
+     * @param token Address of the token
+     * @return isLiquidatable Whether the position can be liquidated
+     * @return liquidationPrice The price at which liquidation would occur (as % of initial collateral)
+     * @param collateralToLiquidator Amount of collateral that would go to a liquidator
+     */
+    function getLiquidationInfo(address user, address token) external view returns (
+        bool isLiquidatable,
+        uint liquidationPrice,
+        uint collateralToLiquidator
+    ) {
+        // Update interest calculation for accurate assessment
+        UserPosition storage position = userPositions[user][token];
+        uint currentInterest = position.interestAccrued;
+        
+        if (position.borrowedAmount > 0 && position.lastInterestCalculationTime > 0) {
+            uint timeElapsed = block.timestamp - position.lastInterestCalculationTime;
+            uint additionalInterest = (position.borrowedAmount * interestRate * timeElapsed) / (365 days * 10000);
+            currentInterest += additionalInterest;
+        }
+        
+        uint totalDebt = position.borrowedAmount + currentInterest;
+        
+        // Check if position is liquidatable
+        if (totalDebt == 0) {
+            isLiquidatable = false;
+            liquidationPrice = 0;
+            collateralToLiquidator = 0;
+            return (isLiquidatable, liquidationPrice, collateralToLiquidator);
+        }
+        
+        uint collateralValue = (position.collateralAmount * 10000) / liquidationThreshold;
+        isLiquidatable = collateralValue < totalDebt;
+        
+        // Calculate liquidation price as percentage of collateral
+        liquidationPrice = (liquidationThreshold * totalDebt) / position.collateralAmount;
+        
+        // Calculate how much collateral would go to liquidator
+        collateralToLiquidator = (totalDebt * liquidationBonus) / 10000;
+        if (collateralToLiquidator > position.collateralAmount) {
+            collateralToLiquidator = position.collateralAmount;
+        }
+    }
+    
+    /**
+     * @dev Get protocol health metrics
+     * @return totalLiquidity Total liquidity across all supported tokens
+     * @return totalBorrows Total borrows across all supported tokens
+     * @return totalCollateralValue Total collateral value across all supported tokens
+     * @return numberOfPositions Total number of active positions
+     */
+    function getProtocolMetrics() external view returns (
+        uint totalLiquidity,
+        uint totalBorrows, 
+        uint totalCollateralValue,
+        uint numberOfPositions
+    ) {
+        // Since we don't have a list of all tokens, we can't implement this fully
+        // In a real implementation, we would iterate through a list of all supported tokens
+        // For now, this function serves as a placeholder for protocol-wide metrics
+        totalLiquidity = 0;
+        totalBorrows = 0;
+        totalCollateralValue = 0;
+        numberOfPositions = 0;
+        
+        // Note: This would require additional tracking and is left as a placeholder
     }
     
     /**
