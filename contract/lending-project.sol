@@ -2,208 +2,235 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
 
 /**
- * @title LendingContract
- * @dev A lending contract that allows users to deposit collateral, borrow tokens, and more
+ * @title LendingProtocol
+ * @dev A lending protocol that allows users to deposit collateral, borrow tokens, and participate in liquidations
  */
-contract LendingContract is ReentrancyGuard, Ownable {
-    // Supported tokens for lending and collateral
-    mapping(address => bool) public supportedTokens;
+contract LendingProtocol is ReentrancyGuard, Ownable {
+    using SafeERC20 for IERC20;
     
-    // Interest rate in basis points (1 basis point = 0.01%)
-    uint public interestRate = 500; // 5% annual interest rate
+    /// @notice Constant for basis points calculations (100%)
+    uint256 public constant BASIS_POINTS_DIVISOR = 10000;
     
-    // Collateral ratio required (in percentage * 100)
-    uint public collateralRatio = 15000; // 150% collateral required
+    /// @notice Constant for percentage calculations in a year
+    uint256 public constant SECONDS_PER_YEAR = 365 days;
     
-    // Liquidation threshold (in percentage * 100)
-    uint public liquidationThreshold = 12500; // 125% - liquidation occurs below this
-    
-    // Liquidation bonus (in percentage * 100)
-    uint public liquidationBonus = 10500; // Liquidator gets 105% of the debt value in collateral
-    
-    // Total amount of tokens borrowed
-    mapping(address => uint) public totalBorrowed;
-    
-    // Total amount of tokens deposited as collateral
-    mapping(address => uint) public totalCollateral;
-    
-    // User deposit and loan data
-    struct UserPosition {
-        uint collateralAmount;
-        uint borrowedAmount;
-        uint lastInterestCalculationTime;
-        uint interestAccrued;
+    /// @notice Protocol parameters
+    struct ProtocolParams {
+        uint256 interestRate;        // Interest rate in basis points (1 basis point = 0.01%)
+        uint256 collateralRatio;     // Collateral ratio required (in basis points)
+        uint256 liquidationThreshold; // Liquidation threshold (in basis points)
+        uint256 liquidationBonus;    // Liquidation bonus (in basis points)
     }
     
-    // Maps user address => token address => position details
+    /// @notice User position data
+    struct UserPosition {
+        uint256 collateralAmount;
+        uint256 borrowedAmount;
+        uint256 lastInterestCalculationTime;
+        uint256 interestAccrued;
+    }
+    
+    /// @notice Token liquidity data for the protocol
+    struct TokenLiquidity {
+        uint256 totalCollateral;
+        uint256 totalBorrowed;
+    }
+    
+    /// @notice Protocol parameters
+    ProtocolParams public params;
+    
+    /// @notice Supported tokens for lending and collateral
+    mapping(address => bool) public supportedTokens;
+    
+    /// @notice Token liquidity data
+    mapping(address => TokenLiquidity) public tokenLiquidity;
+    
+    /// @notice User positions: user address => token address => position details
     mapping(address => mapping(address => UserPosition)) public userPositions;
     
-    // Events
-    event TokenAdded(address indexed token);
-    event TokenRemoved(address indexed token);
-    event Deposit(address indexed user, address indexed token, uint amount);
-    event Withdraw(address indexed user, address indexed token, uint amount);
-    event Borrow(address indexed user, address indexed token, uint amount);
-    event Repay(address indexed user, address indexed token, uint amount);
-    event Liquidated(address indexed user, address indexed token, uint collateralAmount, uint debtAmount);
-    event InterestRateUpdated(uint oldRate, uint newRate);
-    event CollateralRatioUpdated(uint oldRatio, uint newRatio);
-    event LiquidationThresholdUpdated(uint oldThreshold, uint newThreshold);
-    event EmergencyPaused(bool isPaused);
-    
-    // Emergency pause switch
+    /// @notice Emergency pause switch
     bool public isPaused;
     
-    // Modifier to check if contract is not paused
+    // Events
+    event TokenStatusUpdated(address indexed token, bool isSupported);
+    event ProtocolParamsUpdated(string paramName, uint256 oldValue, uint256 newValue);
+    event CollateralDeposited(address indexed user, address indexed token, uint256 amount);
+    event CollateralWithdrawn(address indexed user, address indexed token, uint256 amount);
+    event TokenBorrowed(address indexed user, address indexed token, uint256 amount);
+    event LoanRepaid(address indexed user, address indexed token, uint256 amount, uint256 interestPaid);
+    event PositionLiquidated(address indexed user, address indexed liquidator, address indexed token, uint256 collateralLiquidated, uint256 debtRepaid);
+    event EmergencyStatusUpdated(bool isPaused);
+    
+    /**
+     * @notice Modifier to check if contract is not paused
+     */
     modifier whenNotPaused() {
-        require(!isPaused, "Contract is paused");
+        require(!isPaused, "LendingProtocol: Protocol is paused");
         _;
     }
     
     /**
-     * @dev Constructor that initializes the contract with an owner
+     * @notice Modifier to check if token is supported
+     */
+    modifier onlySupportedToken(address token) {
+        require(supportedTokens[token], "LendingProtocol: Token not supported");
+        _;
+    }
+    
+    /**
+     * @dev Constructor that initializes the contract with default parameters
      */
     constructor() Ownable(msg.sender) {
+        // Initialize protocol parameters
+        params = ProtocolParams({
+            interestRate: 500,        // 5% annual interest rate
+            collateralRatio: 15000,   // 150% collateral required
+            liquidationThreshold: 12500, // 125% - liquidation occurs below this
+            liquidationBonus: 10500   // Liquidator gets 105% of the debt value in collateral
+        });
+        
         isPaused = false;
     }
     
     /**
-     * @dev Add a token to the list of supported tokens
-     * @param token Address of the token to add
+     * @notice Update a token's support status
+     * @param token Address of the token
+     * @param isSupported Whether the token should be supported
      */
-    function addSupportedToken(address token) external onlyOwner {
-        require(token != address(0), "Invalid token address");
-        supportedTokens[token] = true;
-        emit TokenAdded(token);
+    function setTokenSupport(address token, bool isSupported) external onlyOwner {
+        require(token != address(0), "LendingProtocol: Invalid token address");
+        supportedTokens[token] = isSupported;
+        emit TokenStatusUpdated(token, isSupported);
     }
     
     /**
-     * @dev Remove a token from the list of supported tokens
-     * @param token Address of the token to remove
-     */
-    function removeSupportedToken(address token) external onlyOwner {
-        supportedTokens[token] = false;
-        emit TokenRemoved(token);
-    }
-    
-    /**
-     * @dev Update interest rate
+     * @notice Update interest rate
      * @param newInterestRate New interest rate in basis points
      */
-    function updateInterestRate(uint newInterestRate) external onlyOwner {
-        uint oldRate = interestRate;
-        interestRate = newInterestRate;
-        emit InterestRateUpdated(oldRate, newInterestRate);
+    function setInterestRate(uint256 newInterestRate) external onlyOwner {
+        uint256 oldRate = params.interestRate;
+        params.interestRate = newInterestRate;
+        emit ProtocolParamsUpdated("interestRate", oldRate, newInterestRate);
     }
     
     /**
-     * @dev Update collateral ratio requirement
-     * @param newCollateralRatio New collateral ratio (in percentage * 100)
+     * @notice Update collateral ratio
+     * @param newCollateralRatio New collateral ratio in basis points
      */
-    function updateCollateralRatio(uint newCollateralRatio) external onlyOwner {
-        require(newCollateralRatio > 10000, "Collateral ratio must be greater than 100%");
-        require(newCollateralRatio > liquidationThreshold, "Collateral ratio must be greater than liquidation threshold");
-        
-        uint oldRatio = collateralRatio;
-        collateralRatio = newCollateralRatio;
-        emit CollateralRatioUpdated(oldRatio, newCollateralRatio);
+    function setCollateralRatio(uint256 newCollateralRatio) external onlyOwner {
+        require(newCollateralRatio > params.liquidationThreshold, "LendingProtocol: Collateral ratio must be higher than liquidation threshold");
+        uint256 oldRatio = params.collateralRatio;
+        params.collateralRatio = newCollateralRatio;
+        emit ProtocolParamsUpdated("collateralRatio", oldRatio, newCollateralRatio);
     }
     
     /**
-     * @dev Update liquidation threshold
-     * @param newLiquidationThreshold New liquidation threshold (in percentage * 100)
+     * @notice Update liquidation threshold
+     * @param newLiquidationThreshold New liquidation threshold in basis points
      */
-    function updateLiquidationThreshold(uint newLiquidationThreshold) external onlyOwner {
-        require(newLiquidationThreshold > 10000, "Liquidation threshold must be greater than 100%");
-        require(newLiquidationThreshold < collateralRatio, "Liquidation threshold must be less than collateral ratio");
-        
-        uint oldThreshold = liquidationThreshold;
-        liquidationThreshold = newLiquidationThreshold;
-        emit LiquidationThresholdUpdated(oldThreshold, newLiquidationThreshold);
+    function setLiquidationThreshold(uint256 newLiquidationThreshold) external onlyOwner {
+        require(newLiquidationThreshold < params.collateralRatio, "LendingProtocol: Liquidation threshold must be lower than collateral ratio");
+        uint256 oldThreshold = params.liquidationThreshold;
+        params.liquidationThreshold = newLiquidationThreshold;
+        emit ProtocolParamsUpdated("liquidationThreshold", oldThreshold, newLiquidationThreshold);
     }
     
     /**
-     * @dev Emergency pause/unpause functionality
+     * @notice Update liquidation bonus
+     * @param newLiquidationBonus New liquidation bonus in basis points
+     */
+    function setLiquidationBonus(uint256 newLiquidationBonus) external onlyOwner {
+        require(newLiquidationBonus >= BASIS_POINTS_DIVISOR, "LendingProtocol: Liquidation bonus must be at least 100%");
+        uint256 oldBonus = params.liquidationBonus;
+        params.liquidationBonus = newLiquidationBonus;
+        emit ProtocolParamsUpdated("liquidationBonus", oldBonus, newLiquidationBonus);
+    }
+    
+    /**
+     * @notice Emergency pause/unpause functionality
      * @param _isPaused Boolean indicating if contract should be paused
      */
     function setEmergencyPause(bool _isPaused) external onlyOwner {
         isPaused = _isPaused;
-        emit EmergencyPaused(_isPaused);
+        emit EmergencyStatusUpdated(_isPaused);
     }
     
     /**
-     * @dev Deposit collateral
+     * @notice Deposit collateral
      * @param token Address of the token to deposit
      * @param amount Amount to deposit
      */
-    function depositCollateral(address token, uint amount) external nonReentrant whenNotPaused {
-        require(supportedTokens[token], "Token not supported");
-        require(amount > 0, "Amount must be greater than 0");
+    function depositCollateral(address token, uint256 amount) external nonReentrant whenNotPaused onlySupportedToken(token) {
+        require(amount > 0, "LendingProtocol: Amount must be greater than zero");
         
         // Update interest for existing position
         _updateInterest(msg.sender, token);
         
         // Transfer tokens from user to contract
-        IERC20(token).transferFrom(msg.sender, address(this), amount);
+        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         
         // Update user's collateral
         userPositions[msg.sender][token].collateralAmount += amount;
         
         // Update total collateral
-        totalCollateral[token] += amount;
+        tokenLiquidity[token].totalCollateral += amount;
         
-        emit Deposit(msg.sender, token, amount);
+        emit CollateralDeposited(msg.sender, token, amount);
     }
     
     /**
-     * @dev Withdraw collateral
+     * @notice Withdraw collateral
      * @param token Address of the token to withdraw
      * @param amount Amount to withdraw
      */
-    function withdrawCollateral(address token, uint amount) external nonReentrant whenNotPaused {
-        require(supportedTokens[token], "Token not supported");
-        require(amount > 0, "Amount must be greater than 0");
+    function withdrawCollateral(address token, uint256 amount) external nonReentrant whenNotPaused onlySupportedToken(token) {
+        require(amount > 0, "LendingProtocol: Amount must be greater than zero");
         
         UserPosition storage position = userPositions[msg.sender][token];
-        require(position.collateralAmount >= amount, "Insufficient collateral");
+        require(position.collateralAmount >= amount, "LendingProtocol: Insufficient collateral");
         
         // Update interest
         _updateInterest(msg.sender, token);
         
         // Check if withdrawal would violate collateral ratio
-        uint totalDebt = position.borrowedAmount + position.interestAccrued;
-        uint remainingCollateral = position.collateralAmount - amount;
+        uint256 totalDebt = position.borrowedAmount + position.interestAccrued;
+        uint256 remainingCollateral = position.collateralAmount - amount;
         
         // Only check collateral ratio if there is outstanding debt
         if (totalDebt > 0) {
-            require(_getCollateralValue(remainingCollateral) >= totalDebt, 
-                    "Withdrawal would violate collateral ratio");
+            uint256 requiredCollateral = _calculateRequiredCollateral(totalDebt);
+            require(remainingCollateral >= requiredCollateral, "LendingProtocol: Withdrawal would breach collateral ratio");
         }
         
         // Update collateral amount
         position.collateralAmount = remainingCollateral;
         
         // Update total collateral
-        totalCollateral[token] -= amount;
+        tokenLiquidity[token].totalCollateral -= amount;
         
         // Transfer tokens back to user
-        IERC20(token).transfer(msg.sender, amount);
+        IERC20(token).safeTransfer(msg.sender, amount);
         
-        emit Withdraw(msg.sender, token, amount);
+        emit CollateralWithdrawn(msg.sender, token, amount);
     }
     
     /**
-     * @dev Borrow tokens against collateral
+     * @notice Borrow tokens against collateral
      * @param token Address of the token to borrow
      * @param amount Amount to borrow
      */
-    function borrow(address token, uint amount) external nonReentrant whenNotPaused {
-        require(supportedTokens[token], "Token not supported");
-        require(amount > 0, "Amount must be greater than 0");
+    function borrow(address token, uint256 amount) external nonReentrant whenNotPaused onlySupportedToken(token) {
+        require(amount > 0, "LendingProtocol: Amount must be greater than zero");
+        
+        // Check available liquidity
+        uint256 availableLiquidity = _getAvailableLiquidity(token);
+        require(availableLiquidity >= amount, "LendingProtocol: Insufficient protocol liquidity");
         
         // Update interest for existing position
         _updateInterest(msg.sender, token);
@@ -211,111 +238,107 @@ contract LendingContract is ReentrancyGuard, Ownable {
         UserPosition storage position = userPositions[msg.sender][token];
         
         // Calculate total debt including new borrow amount
-        uint totalDebt = position.borrowedAmount + position.interestAccrued + amount;
+        uint256 totalDebt = position.borrowedAmount + position.interestAccrued + amount;
         
         // Check if borrowing would violate collateral ratio
-        require(_getCollateralValue(position.collateralAmount) >= totalDebt, 
-                "Insufficient collateral for loan");
+        uint256 requiredCollateral = _calculateRequiredCollateral(totalDebt);
+        require(position.collateralAmount >= requiredCollateral, "LendingProtocol: Insufficient collateral for loan");
         
         // Update borrowed amount
         position.borrowedAmount += amount;
         
         // Update total borrowed
-        totalBorrowed[token] += amount;
+        tokenLiquidity[token].totalBorrowed += amount;
         
         // Transfer tokens to user
-        IERC20(token).transfer(msg.sender, amount);
+        IERC20(token).safeTransfer(msg.sender, amount);
         
-        emit Borrow(msg.sender, token, amount);
+        emit TokenBorrowed(msg.sender, token, amount);
     }
     
     /**
-     * @dev Repay borrowed tokens
+     * @notice Repay borrowed tokens
      * @param token Address of the token to repay
      * @param amount Amount to repay
      */
-    function repay(address token, uint amount) external nonReentrant whenNotPaused {
-        require(supportedTokens[token], "Token not supported");
-        require(amount > 0, "Amount must be greater than 0");
+    function repay(address token, uint256 amount) external nonReentrant whenNotPaused onlySupportedToken(token) {
+        require(amount > 0, "LendingProtocol: Amount must be greater than zero");
         
         // Update interest
         _updateInterest(msg.sender, token);
         
         UserPosition storage position = userPositions[msg.sender][token];
-        uint totalDebt = position.borrowedAmount + position.interestAccrued;
+        uint256 totalDebt = position.borrowedAmount + position.interestAccrued;
         
-        require(totalDebt > 0, "No debt to repay");
+        require(totalDebt > 0, "LendingProtocol: No debt to repay");
         
         // Cap repayment amount to total debt
-        uint repayAmount = amount > totalDebt ? totalDebt : amount;
+        uint256 repayAmount = Math.min(amount, totalDebt);
         
         // Transfer tokens from user to contract
-        IERC20(token).transferFrom(msg.sender, address(this), repayAmount);
+        IERC20(token).safeTransferFrom(msg.sender, address(this), repayAmount);
         
         // Calculate how much of the repayment goes to interest vs principal
-        uint interestPayment = repayAmount > position.interestAccrued ? position.interestAccrued : repayAmount;
-        uint principalPayment = repayAmount - interestPayment;
+        uint256 interestPayment = Math.min(repayAmount, position.interestAccrued);
+        uint256 principalPayment = repayAmount - interestPayment;
         
         // Update debt - first pay off interest, then principal
         position.interestAccrued -= interestPayment;
         position.borrowedAmount -= principalPayment;
         
         // Update total borrowed
-        totalBorrowed[token] -= principalPayment;
+        tokenLiquidity[token].totalBorrowed -= principalPayment;
         
-        emit Repay(msg.sender, token, repayAmount);
+        emit LoanRepaid(msg.sender, token, repayAmount, interestPayment);
     }
     
     /**
-     * @dev Liquidate an under-collateralized position
+     * @notice Liquidate an under-collateralized position
      * @param user Address of the user to liquidate
      * @param token Address of the token
      */
-    function liquidate(address user, address token) external nonReentrant whenNotPaused {
-        require(supportedTokens[token], "Token not supported");
-        require(user != address(0), "Invalid user address");
-        require(user != msg.sender, "Cannot liquidate self");
+    function liquidate(address user, address token) external nonReentrant whenNotPaused onlySupportedToken(token) {
+        require(user != address(0), "LendingProtocol: Invalid user address");
+        require(user != msg.sender, "LendingProtocol: Cannot liquidate your own position");
         
         // Update interest for the position
         _updateInterest(user, token);
         
         UserPosition storage position = userPositions[user][token];
-        uint totalDebt = position.borrowedAmount + position.interestAccrued;
+        uint256 totalDebt = position.borrowedAmount + position.interestAccrued;
         
-        require(totalDebt > 0, "No debt to liquidate");
+        require(totalDebt > 0, "LendingProtocol: No debt to liquidate");
         
         // Check if position is under-collateralized based on liquidation threshold
-        uint collateralValue = (position.collateralAmount * 10000) / liquidationThreshold;
-        require(collateralValue < totalDebt, "Position is not liquidatable");
+        bool isLiquidatable = _isPositionLiquidatable(position);
+        require(isLiquidatable, "LendingProtocol: Position is not liquidatable");
         
         // Calculate collateral to liquidator (including bonus)
-        uint collateralToLiquidator = (totalDebt * liquidationBonus) / 10000;
-        if (collateralToLiquidator > position.collateralAmount) {
-            collateralToLiquidator = position.collateralAmount;
-        }
+        uint256 collateralToLiquidator = (totalDebt * params.liquidationBonus) / BASIS_POINTS_DIVISOR;
+        collateralToLiquidator = Math.min(collateralToLiquidator, position.collateralAmount);
         
-        // Store for events
-        uint collateralToLiquidate = collateralToLiquidator;
-        uint debtToRepay = totalDebt;
+        // Cache values for event emission
+        uint256 collateralToLiquidate = collateralToLiquidator;
+        uint256 debtToRepay = totalDebt;
         
         // Transfer debt amount from liquidator to contract
-        IERC20(token).transferFrom(msg.sender, address(this), totalDebt);
+        IERC20(token).safeTransferFrom(msg.sender, address(this), totalDebt);
         
         // Transfer collateral to liquidator
-        IERC20(token).transfer(msg.sender, collateralToLiquidator);
+        IERC20(token).safeTransfer(msg.sender, collateralToLiquidator);
         
         // Update global stats
-        totalBorrowed[token] -= position.borrowedAmount;
-        totalCollateral[token] -= position.collateralAmount;
+        tokenLiquidity[token].totalBorrowed -= position.borrowedAmount;
+        tokenLiquidity[token].totalCollateral -= position.collateralAmount;
         
         // Reset the user's position
         delete userPositions[user][token];
         
-        emit Liquidated(user, token, collateralToLiquidate, debtToRepay);
+        emit PositionLiquidated(user, msg.sender, token, collateralToLiquidate, debtToRepay);
     }
     
     /**
-     * @dev Get user position details including current health factor
+     * @notice Get user position details including current health factor
      * @param user Address of the user
      * @param token Address of the token
      * @return collateralAmount Amount of collateral deposited
@@ -324,10 +347,10 @@ contract LendingContract is ReentrancyGuard, Ownable {
      * @return healthFactor Current health factor (% of required collateral, >100% is healthy)
      */
     function getUserPosition(address user, address token) external view returns (
-        uint collateralAmount,
-        uint borrowedAmount,
-        uint interestAccrued,
-        uint healthFactor
+        uint256 collateralAmount,
+        uint256 borrowedAmount,
+        uint256 interestAccrued,
+        uint256 healthFactor
     ) {
         UserPosition storage position = userPositions[user][token];
         
@@ -335,26 +358,21 @@ contract LendingContract is ReentrancyGuard, Ownable {
         borrowedAmount = position.borrowedAmount;
         
         // Calculate accrued interest up to current time
-        interestAccrued = position.interestAccrued;
-        
-        if (position.borrowedAmount > 0 && position.lastInterestCalculationTime > 0) {
-            uint timeElapsed = block.timestamp - position.lastInterestCalculationTime;
-            uint additionalInterest = (position.borrowedAmount * interestRate * timeElapsed) / (365 days * 10000);
-            interestAccrued += additionalInterest;
-        }
+        interestAccrued = _calculateCurrentInterest(position);
         
         // Calculate health factor
-        uint totalDebt = borrowedAmount + interestAccrued;
+        uint256 totalDebt = borrowedAmount + interestAccrued;
         if (totalDebt == 0) {
-            healthFactor = type(uint).max; // Max value if no debt
+            healthFactor = type(uint256).max; // Max value if no debt
         } else {
-            // Health factor = (collateral value / debt value) * 100%
-            healthFactor = (collateralAmount * 10000) / (totalDebt * collateralRatio / 10000);
+            // Health factor = (collateral value / required collateral value) * 100%
+            uint256 requiredCollateral = _calculateRequiredCollateral(totalDebt);
+            healthFactor = requiredCollateral > 0 ? (collateralAmount * BASIS_POINTS_DIVISOR) / requiredCollateral : type(uint256).max;
         }
     }
     
     /**
-     * @dev Get the liquidity status of a specific token in the protocol
+     * @notice Get the liquidity status of a specific token in the protocol
      * @param token Address of the token
      * @return totalCollateralAmount Total amount of token deposited as collateral
      * @return totalBorrowedAmount Total amount of token borrowed
@@ -362,130 +380,54 @@ contract LendingContract is ReentrancyGuard, Ownable {
      * @return utilizationRate Current utilization rate as a percentage (0-10000)
      */
     function getTokenLiquidity(address token) external view returns (
-        uint totalCollateralAmount,
-        uint totalBorrowedAmount,
-        uint availableLiquidity,
-        uint utilizationRate
+        uint256 totalCollateralAmount,
+        uint256 totalBorrowedAmount,
+        uint256 availableLiquidity,
+        uint256 utilizationRate
     ) {
-        totalCollateralAmount = totalCollateral[token];
-        totalBorrowedAmount = totalBorrowed[token];
+        TokenLiquidity storage liquidity = tokenLiquidity[token];
         
-        uint tokenBalance = IERC20(token).balanceOf(address(this));
-        availableLiquidity = tokenBalance - totalBorrowedAmount;
+        totalCollateralAmount = liquidity.totalCollateral;
+        totalBorrowedAmount = liquidity.totalBorrowed;
+        
+        availableLiquidity = _getAvailableLiquidity(token);
         
         if (totalCollateralAmount == 0) {
             utilizationRate = 0;
         } else {
-            utilizationRate = (totalBorrowedAmount * 10000) / totalCollateralAmount;
+            utilizationRate = (totalBorrowedAmount * BASIS_POINTS_DIVISOR) / totalCollateralAmount;
         }
     }
     
     /**
-     * @dev Allows users to check how much they can borrow against their collateral
+     * @notice Allows users to check how much they can borrow against their collateral
      * @param user Address of the user
      * @param token Address of the token
      * @return availableToBorrow Maximum amount user can borrow
      */
-    function getAvailableToBorrow(address user, address token) external view returns (uint availableToBorrow) {
+    function getAvailableToBorrow(address user, address token) external view returns (uint256 availableToBorrow) {
         UserPosition storage position = userPositions[user][token];
         
-        // Calculate accrued interest up to current time
-        uint currentInterest = position.interestAccrued;
+        // Calculate current interest
+        uint256 currentInterest = _calculateCurrentInterest(position);
+        uint256 totalDebt = position.borrowedAmount + currentInterest;
         
-        if (position.borrowedAmount > 0 && position.lastInterestCalculationTime > 0) {
-            uint timeElapsed = block.timestamp - position.lastInterestCalculationTime;
-            uint additionalInterest = (position.borrowedAmount * interestRate * timeElapsed) / (365 days * 10000);
-            currentInterest += additionalInterest;
-        }
+        // Calculate max borrow based on collateral
+        uint256 maxBorrowable = _calculateMaxBorrowable(position.collateralAmount);
         
-        uint totalDebt = position.borrowedAmount + currentInterest;
-        uint maxBorrow = _getCollateralValue(position.collateralAmount);
-        
-        if (totalDebt >= maxBorrow) {
+        if (totalDebt >= maxBorrowable) {
             return 0;
         }
         
-        availableToBorrow = maxBorrow - totalDebt;
+        availableToBorrow = maxBorrowable - totalDebt;
         
         // Check against available protocol liquidity
-        uint protocolLiquidity = IERC20(token).balanceOf(address(this)) - totalBorrowed[token];
-        if (availableToBorrow > protocolLiquidity) {
-            availableToBorrow = protocolLiquidity;
-        }
+        uint256 protocolLiquidity = _getAvailableLiquidity(token);
+        availableToBorrow = Math.min(availableToBorrow, protocolLiquidity);
     }
     
     /**
-     * @dev Get liquidation information for a specific user position
-     * @param user Address of the user
-     * @param token Address of the token
-     * @return isLiquidatable Whether the position can be liquidated
-     * @return liquidationPrice The price at which liquidation would occur (as % of initial collateral)
-     * @param collateralToLiquidator Amount of collateral that would go to a liquidator
-     */
-    function getLiquidationInfo(address user, address token) external view returns (
-        bool isLiquidatable,
-        uint liquidationPrice,
-        uint collateralToLiquidator
-    ) {
-        // Update interest calculation for accurate assessment
-        UserPosition storage position = userPositions[user][token];
-        uint currentInterest = position.interestAccrued;
-        
-        if (position.borrowedAmount > 0 && position.lastInterestCalculationTime > 0) {
-            uint timeElapsed = block.timestamp - position.lastInterestCalculationTime;
-            uint additionalInterest = (position.borrowedAmount * interestRate * timeElapsed) / (365 days * 10000);
-            currentInterest += additionalInterest;
-        }
-        
-        uint totalDebt = position.borrowedAmount + currentInterest;
-        
-        // Check if position is liquidatable
-        if (totalDebt == 0) {
-            isLiquidatable = false;
-            liquidationPrice = 0;
-            collateralToLiquidator = 0;
-            return (isLiquidatable, liquidationPrice, collateralToLiquidator);
-        }
-        
-        uint collateralValue = (position.collateralAmount * 10000) / liquidationThreshold;
-        isLiquidatable = collateralValue < totalDebt;
-        
-        // Calculate liquidation price as percentage of collateral
-        liquidationPrice = (liquidationThreshold * totalDebt) / position.collateralAmount;
-        
-        // Calculate how much collateral would go to liquidator
-        collateralToLiquidator = (totalDebt * liquidationBonus) / 10000;
-        if (collateralToLiquidator > position.collateralAmount) {
-            collateralToLiquidator = position.collateralAmount;
-        }
-    }
-    
-    /**
-     * @dev Get protocol health metrics
-     * @return totalLiquidity Total liquidity across all supported tokens
-     * @return totalBorrows Total borrows across all supported tokens
-     * @return totalCollateralValue Total collateral value across all supported tokens
-     * @return numberOfPositions Total number of active positions
-     */
-    function getProtocolMetrics() external view returns (
-        uint totalLiquidity,
-        uint totalBorrows, 
-        uint totalCollateralValue,
-        uint numberOfPositions
-    ) {
-        // Since we don't have a list of all tokens, we can't implement this fully
-        // In a real implementation, we would iterate through a list of all supported tokens
-        // For now, this function serves as a placeholder for protocol-wide metrics
-        totalLiquidity = 0;
-        totalBorrows = 0;
-        totalCollateralValue = 0;
-        numberOfPositions = 0;
-        
-        // Note: This would require additional tracking and is left as a placeholder
-    }
-    
-    /**
-     * @dev Update the interest for a user's position
+     * @notice Update the interest for a user's position
      * @param user Address of the user
      * @param token Address of the token
      */
@@ -497,23 +439,71 @@ contract LendingContract is ReentrancyGuard, Ownable {
             return;
         }
         
-        uint timeElapsed = block.timestamp - position.lastInterestCalculationTime;
+        uint256 timeElapsed = block.timestamp - position.lastInterestCalculationTime;
         if (timeElapsed == 0) return;
         
-        // Calculate interest: principal * rate * time / (365 days * 10000)
-        // Where rate is in basis points (1bp = 0.01%)
-        uint interest = (position.borrowedAmount * interestRate * timeElapsed) / (365 days * 10000);
+        // Calculate interest: principal * rate * time / (SECONDS_PER_YEAR * BASIS_POINTS_DIVISOR)
+        uint256 interest = (position.borrowedAmount * params.interestRate * timeElapsed) / (SECONDS_PER_YEAR * BASIS_POINTS_DIVISOR);
         
         position.interestAccrued += interest;
         position.lastInterestCalculationTime = block.timestamp;
     }
     
     /**
-     * @dev Get collateral value adjusted by collateral ratio
-     * @param collateralAmount Amount of collateral
-     * @return Required loan value to maintain collateral ratio
+     * @notice Calculate current interest including accrued but not yet updated interest
+     * @param position User position
+     * @return Current total interest
      */
-    function _getCollateralValue(uint collateralAmount) internal view returns (uint) {
-        return (collateralAmount * 10000) / collateralRatio;
+    function _calculateCurrentInterest(UserPosition storage position) internal view returns (uint256) {
+        if (position.borrowedAmount == 0 || position.lastInterestCalculationTime == 0) {
+            return position.interestAccrued;
+        }
+        
+        uint256 timeElapsed = block.timestamp - position.lastInterestCalculationTime;
+        if (timeElapsed == 0) return position.interestAccrued;
+        
+        uint256 additionalInterest = (position.borrowedAmount * params.interestRate * timeElapsed) / (SECONDS_PER_YEAR * BASIS_POINTS_DIVISOR);
+        return position.interestAccrued + additionalInterest;
+    }
+    
+    /**
+     * @notice Check if a position is liquidatable
+     * @param position The user position to check
+     * @return True if position is liquidatable
+     */
+    function _isPositionLiquidatable(UserPosition storage position) internal view returns (bool) {
+        uint256 totalDebt = position.borrowedAmount + position.interestAccrued;
+        if (totalDebt == 0) return false;
+        
+        // Position is liquidatable if: collateral * liquidationThreshold < totalDebt * BASIS_POINTS_DIVISOR
+        return (position.collateralAmount * params.liquidationThreshold) < (totalDebt * BASIS_POINTS_DIVISOR);
+    }
+    
+    /**
+     * @notice Calculate required collateral for a loan amount
+     * @param loanAmount Amount of the loan
+     * @return Required collateral amount
+     */
+    function _calculateRequiredCollateral(uint256 loanAmount) internal view returns (uint256) {
+        return (loanAmount * params.collateralRatio) / BASIS_POINTS_DIVISOR;
+    }
+    
+    /**
+     * @notice Calculate maximum borrowable amount for a collateral amount
+     * @param collateralAmount Amount of collateral
+     * @return Maximum borrowable amount
+     */
+    function _calculateMaxBorrowable(uint256 collateralAmount) internal view returns (uint256) {
+        return (collateralAmount * BASIS_POINTS_DIVISOR) / params.collateralRatio;
+    }
+    
+    /**
+     * @notice Get available liquidity for a token
+     * @param token Token address
+     * @return Available liquidity
+     */
+    function _getAvailableLiquidity(address token) internal view returns (uint256) {
+        uint256 balance = IERC20(token).balanceOf(address(this));
+        return balance - tokenLiquidity[token].totalBorrowed;
     }
 }
