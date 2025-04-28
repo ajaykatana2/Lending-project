@@ -6,7 +6,7 @@ This project implements a decentralized lending platform using Ethereum smart co
 
 The lending protocol offers essential financial primitives including collateral deposits, withdrawals, borrowing, and repayment functionality, all executed directly on the blockchain without intermediaries. The contract monitors collateral ratios to maintain system security and implements essential risk management features.
 
-Built on Solidity and utilizing the OpenZeppelin libraries for security best practices, the contract provides a solid foundation for DeFi lending operations while maintaining a simple, efficient design focused on core functionality.
+Built on Solidity and utilizing the OpenZeppelin libraries for security best practices, the contract provides a solid foundation for DeFi lending operations while maintaining a simple, efficient design focused on core functionality.   
 
 ## Project Vision
 
