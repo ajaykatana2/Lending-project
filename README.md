@@ -72,6 +72,9 @@ As DeFi continues to evolve, this lending protocol will integrate with other fin
 
 **Contract Address:** 0xc9f5ca2c36ddcc22cf5c71b1ff32a28486934ace
 
+<img width="1414" alt="image" src="https://github.com/user-attachments/assets/7a57d4ec-907c-45f4-ac74-9f17b4685b43" />
+
+
 
 <img width="1406" alt="image" src="https://github.com/user-attachments/assets/c3c7a277-d19a-4880-a36d-137733740116" />
 
