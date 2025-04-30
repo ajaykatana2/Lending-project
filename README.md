@@ -38,7 +38,7 @@ As DeFi continues to evolve, this lending protocol will integrate with other fin
 
 10. **Interest Calculation**: Time-based interest calculation that accurately tracks debt growth over time using block timestamps.
 
-## Future Scope
+## Future Scope 
 
 1. **Variable Interest Rates**: Implement dynamic interest rate models that adjust based on utilization rates, market conditions, and risk parameters.
 
