@@ -596,7 +596,7 @@ contract LendingProtocol is ReentrancyGuard, Ownable {
     }
 }
 
-/**
+/**  
  * @title IFlashLoanReceiver
  * @dev Interface for flash loan receivers
  */
