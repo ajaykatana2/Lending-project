@@ -17,7 +17,7 @@ By removing intermediaries and utilizing blockchain technology, we aim to reduce
 As DeFi continues to evolve, this lending protocol will integrate with other financial primitives to create increasingly sophisticated and user-friendly financial products, ultimately contributing to a more open and efficient global financial system.
 
 ## Key Features
-
+ 
 1. **Collateralized Lending**: Users can deposit supported ERC20 tokens as collateral and borrow against their value at a specified loan-to-value ratio.
 
 2. **Configurable Parameters**: The protocol includes adjustable parameters such as interest rates and collateral ratios that can be updated by governance to adapt to market conditions.
