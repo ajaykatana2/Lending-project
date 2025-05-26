@@ -32,6 +32,7 @@ contract LendingProtocol is ReentrancyGuard, Ownable {
     /// @notice User position data
     struct UserPosition {
         uint256 collateralAmount;
+
         uint256 borrowedAmount;
         uint256 lastInterestCalculationTime;
         uint256 interestAccrued;
