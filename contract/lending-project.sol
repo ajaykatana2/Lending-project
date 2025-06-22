@@ -32,7 +32,6 @@ contract LendingProtocol is ReentrancyGuard, Ownable {
     /// @notice User position data
     struct UserPosition {
         uint256 collateralAmount;
-
         uint256 borrowedAmount;
         uint256 lastInterestCalculationTime;
         uint256 interestAccrued;
@@ -428,6 +427,75 @@ contract LendingProtocol is ReentrancyGuard, Ownable {
         // Check against available protocol liquidity
         uint256 protocolLiquidity = _getAvailableLiquidity(token);
         availableToBorrow = Math.min(availableToBorrow, protocolLiquidity);
+    }
+    
+    /**
+     * @notice Calculate liquidation threshold price for a user's position
+     * @param user Address of the user
+     * @param token Address of the token
+     * @param collateralPriceInUSD Current price of collateral in USD (with 18 decimals)
+     * @param borrowedTokenPriceInUSD Current price of borrowed token in USD (with 18 decimals)
+     * @return liquidationPrice Price at which the position becomes liquidatable (collateral price in USD)
+     * @return daysToLiquidation Estimated days until liquidation at current interest rate (if no price change)
+     * @return isCurrentlyLiquidatable Whether the position is currently liquidatable
+     */
+    function getLiquidationInfo(
+        address user, 
+        address token,
+        uint256 collateralPriceInUSD,
+        uint256 borrowedTokenPriceInUSD
+    ) external view returns (
+        uint256 liquidationPrice,
+        uint256 daysToLiquidation,
+        bool isCurrentlyLiquidatable
+    ) {
+        UserPosition storage position = userPositions[user][token];
+        
+        // Calculate current interest
+        uint256 currentInterest = _calculateCurrentInterest(position);
+        uint256 totalDebt = position.borrowedAmount + currentInterest;
+        
+        // If no debt, position cannot be liquidated
+        if (totalDebt == 0) {
+            return (0, type(uint256).max, false);
+        }
+        
+        // Check if currently liquidatable
+        isCurrentlyLiquidatable = _isPositionLiquidatable(position);
+        
+        // Calculate liquidation price
+        // At liquidation: collateral_amount * liquidation_price = total_debt * liquidation_threshold / BASIS_POINTS_DIVISOR
+        // liquidation_price = (total_debt * liquidation_threshold * borrowed_token_price) / (collateral_amount * BASIS_POINTS_DIVISOR)
+        if (position.collateralAmount > 0) {
+            liquidationPrice = (totalDebt * params.liquidationThreshold * borrowedTokenPriceInUSD) / 
+                              (position.collateralAmount * BASIS_POINTS_DIVISOR);
+        } else {
+            liquidationPrice = 0;
+        }
+        
+        // Calculate days to liquidation due to interest accrual
+        if (params.interestRate > 0 && position.borrowedAmount > 0 && !isCurrentlyLiquidatable) {
+            // Calculate how much additional debt would trigger liquidation
+            uint256 liquidationDebtThreshold = (position.collateralAmount * collateralPriceInUSD * BASIS_POINTS_DIVISOR) / 
+                                              (params.liquidationThreshold * borrowedTokenPriceInUSD);
+            
+            if (liquidationDebtThreshold > totalDebt) {
+                uint256 additionalDebtNeeded = liquidationDebtThreshold - totalDebt;
+                
+                // Calculate daily interest accrual
+                uint256 dailyInterest = (position.borrowedAmount * params.interestRate) / (BASIS_POINTS_DIVISOR * 365);
+                
+                if (dailyInterest > 0) {
+                    daysToLiquidation = additionalDebtNeeded / dailyInterest;
+                } else {
+                    daysToLiquidation = type(uint256).max;
+                }
+            } else {
+                daysToLiquidation = 0;
+            }
+        } else {
+            daysToLiquidation = isCurrentlyLiquidatable ? 0 : type(uint256).max;
+        }
     }
     
     /**
