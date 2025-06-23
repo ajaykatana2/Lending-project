@@ -8,9 +8,9 @@ The lending protocol offers essential financial primitives including collateral 
 
 Built on Solidity and utilizing the OpenZeppelin libraries for security best practices, the contract provides a solid foundation for DeFi lending operations while maintaining a simple, efficient design focused on core functionality. 
 
-## Project Vision:  
+## Project Vision:
 
-Our vision is to create an accessible and inclusive decentralized financial system that empowers users worldwide to access capital without traditional banking intermediaries. This lending protocol serves as a building block for a more equitable financial ecosystem, where anyone with internet access can participate in lending and borrowing activities previously restricted to those with established banking relationships.
+ Our vision is to create an accessible and inclusive decentralized financial system that empowers users worldwide to access capital without traditional banking intermediaries. This lending protocol serves as a building block for a more equitable financial ecosystem, where anyone with internet access can participate in lending and borrowing activities previously restricted to those with established banking relationships.
 
 By removing intermediaries and utilizing blockchain technology, we aim to reduce costs, increase transparency, and expand financial access globally. The protocol is designed with simplicity and security as primary objectives, enabling even those new to decentralized finance to engage with confidence.
 
