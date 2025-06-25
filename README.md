@@ -1,6 +1,6 @@
 # Lending Contract
 
-## Project Description
+## Project Description 
 
 This project implements a decentralized lending platform using Ethereum smart contracts. The system allows users to deposit supported ERC20 tokens as collateral and borrow against that collateral at a fixed interest rate. The contract utilizes an over-collateralization model to ensure the protocol remains solvent even during market volatility.
 
