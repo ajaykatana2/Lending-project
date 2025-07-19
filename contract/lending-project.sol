@@ -49,7 +49,7 @@ contract LendingProtocol is ReentrancyGuard, Ownable {
     ProtocolParams public params;
     
     /// @notice Supported tokens for lending and collateral
-    mapping(address => bool) public supportedTokens;
+    mapping(address => bool) public supportedTokens;  
     
     /// @notice Token liquidity data
     mapping(address => TokenLiquidity) public tokenLiquidity;
