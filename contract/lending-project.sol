@@ -24,7 +24,7 @@ contract LendingProtocol is ReentrancyGuard, Ownable {
     uint256 public constant SECONDS_PER_YEAR = 365 days;
     
     /// @notice Protocol parameters
-    struct ProtocolParams {
+    struct ProtocolParams {.  
         uint256 interestRate;        // Interest rate in basis points (1 basis point = 0.01%)
         uint256 collateralRatio;     // Collateral ratio required (in basis points)
         uint256 liquidationThreshold; // Liquidation threshold (in basis points)
