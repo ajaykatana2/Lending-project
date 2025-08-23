@@ -14,7 +14,7 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
  * @dev A lending protocol that allows users to deposit collateral, borrow tokens, and participate in liquidations
  */
 // This contract is for lending project
-contract LendingProtocol is ReentrancyGuard, Ownable {
+contract LendingProtocol is ReentrancyGuard, Ownable { 
     using SafeERC20 for IERC20;
     
     /// @notice Constant for basis points calculations (100%)
