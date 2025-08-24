@@ -28,7 +28,7 @@ contract LendingProtocol is ReentrancyGuard, Ownable {
         uint256 interestRate;        // Interest rate in basis points (1 basis point = 0.01%)
         uint256 collateralRatio;     // Collateral ratio required (in basis points)
         uint256 liquidationThreshold; // Liquidation threshold (in basis points)
-        uint256 liquidationBonus;    // Liquidation bonus (in basis points)
+        uint256 liquidationBonus;    // Liquidation bonus (in basis points)  
     }
     
     /// @notice User position data
