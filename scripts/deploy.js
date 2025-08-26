@@ -4,7 +4,7 @@ async function main() {
   console.log("🚀 Starting deployment of Lending Project...");
   
   // Get the deployer account
-  const [deployer] = await ethers.getSigners();
+  const [deployer] = await ethers.getSigners(); 
   
   console.log("📝 Deploying contracts with the account:", deployer.address);
   console.log("💰 Account balance:", (await deployer.provider.getBalance(deployer.address)).toString());
@@ -93,3 +93,4 @@ main()
     console.error("❌ Deployment failed:", error);
     process.exit(1);
   });
+
