@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>DeFi Lending Platform</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.ethers.io/lib/ethers-5.2.umd.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>DeFi Lending Platform</h1>
+        <p>Interact with the decentralized lending protocol.</p>
+        <button id="connectButton">Connect Wallet</button>
+        <div id="accountDisplay"></div>
+        <hr/>
+
+        <div>
+            <h2>Your Collateral</h2>
+            <button id="viewCollateral">View Collateral</button>
+            <div id="collateralDisplay"></div>
+        </div>
+
+        <div>
+            <h2>Deposit Collateral</h2>
+            <input type="text" id="depositAmount" placeholder="Token Amount" />
+            <button id="depositButton">Deposit</button>
+            <div id="depositStatus"></div>
+        </div>
+
+        <div>
+            <h2>Borrow</h2>
+            <input type="text" id="borrowAmount" placeholder="Borrow Amount" />
+            <button id="borrowButton">Borrow</button>
+            <div id="borrowStatus"></div>
+        </div>
+
+        <div>
+            <h2>Repay Loan</h2>
+            <input type="text" id="repayAmount" placeholder="Repay Amount" />
+            <button id="repayButton">Repay</button>
+            <div id="repayStatus"></div>
+        </div>
+
+        <div>
+            <h2>Withdraw Collateral</h2>
+            <input type="text" id="withdrawAmount" placeholder="Token Amount" />
+            <button id="withdrawButton">Withdraw</button>
+            <div id="withdrawStatus"></div>
+        </div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
