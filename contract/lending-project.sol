@@ -18,7 +18,7 @@ contract LendingProtocol is ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
     
     /// @notice Constant for basis points calculations (100%)
-    uint256 public constant BASIS_POINTS_DIVISOR = 10000;
+    uint256 public constant BASIS_POINTS_DIVISOR = 10000; 
     
     /// @notice Constant for percentage calculations in a year
     uint256 public constant SECONDS_PER_YEAR = 365 days;
